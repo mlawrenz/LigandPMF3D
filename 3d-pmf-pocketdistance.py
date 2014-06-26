@@ -112,7 +112,7 @@ def main(modeldir, genfile, ligandfile, volume):
     pops=loadtxt('%s/Populations.dat' % modeldir)
     ligandind=loadtxt(ligandfile, dtype=int, ndmin=1)
 
-    mapped_ligcoors, x_range, y_range, z_range, box_volume=get_ligand_minmax(gens['XYZList'][:, ligandind, map)
+    mapped_ligcoors, x_range, y_range, z_range, box_volume=get_ligand_minmax(gens['XYZList'][:, ligandind], map)
     correction=-0.6*log(box_volume/1600.0)
     print "correction %s" % correction
     savetxt('%s/standard_correction.dat' % modeldir, array([correction,]))
