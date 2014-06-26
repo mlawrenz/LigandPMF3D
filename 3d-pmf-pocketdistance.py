@@ -103,21 +103,16 @@ def estimate_free_energy(space, spacetrack, mapped_com_distances, mapped_ligcoor
         print "standard free energy is %s" % (standard_frees[index])
         print "(population-weighted) bound volume is %s A^3" % bound_volumes[index]
 
-def main(modeldir, genfile,volume):
+def main(modeldir, genfile, ligandfile, volume):
     dir=os.path.dirname(genfile)
     filename=genfile.split(dir)[1].split('.lh5')[0]
     gens=Trajectory.load_from_lhdf(genfile)
     print "computing PMF from model in %s" % modeldir
     map=loadtxt('%s/Mapping.dat' % modeldir)
     pops=loadtxt('%s/Populations.dat' % modeldir)
-    indices=dict()
-    keys=['prot', 'ligand']
-    protfile='../test/AtomIndices-prot.dat'
-    ligandfile='../test/AtomIndices-ligand.dat'
-    indices['prot']=loadtxt(protfile, dtype=int, ndmin=1)
-    indices['ligand']=loadtxt(ligandfile, dtype=int, ndmin=1)
+    ligandind=loadtxt(ligandfile, dtype=int, ndmin=1)
 
-    mapped_ligcoors, x_range, y_range, z_range, box_volume=get_ligand_minmax(gens['XYZList'][:, indices['ligand']], map)
+    mapped_ligcoors, x_range, y_range, z_range, box_volume=get_ligand_minmax(gens['XYZList'][:, ligandind, map)
     correction=-0.6*log(box_volume/1600.0)
     print "correction %s" % correction
     savetxt('%s/standard_correction.dat' % modeldir, array([correction,]))
@@ -154,6 +149,8 @@ def parse_commandline():
                       help='directory with MSM')
     parser.add_option('-g', '--genfile', dest='genfile',
                       help='input gens file lh5')
+    parser.add_option('-l', '--ligandfile', dest='ligandfile',
+                      help='ligand index file')
     parser.add_option('-v', '--volume', dest='volume',
                           help='volume cutoff')
     (options, args) = parser.parse_args()
@@ -162,5 +159,4 @@ def parse_commandline():
 #run the function main if namespace is main
 if __name__ == "__main__":
     (options, args) = parse_commandline()
-    main(modeldir=options.modeldir, genfile=options.genfile, volume=options.volume)
-
+    main(modeldir=options.modeldir, genfile=options.genfile, ligandfile=options.ligandfile, volume=options.volume)
