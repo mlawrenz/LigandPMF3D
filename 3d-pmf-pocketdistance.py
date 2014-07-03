@@ -9,6 +9,17 @@ import sys
 import pickle
 from scipy import interpolate, integrate
 
+# Helper Functions
+def eval_distance(mapped_state_distances, cutoff):
+    # assumes mapped states and state_distances
+    mapped_cutoff_states=[]
+    for state in xrange(len(mapped_state_distances)):
+        # if mindist to protein > cutoff, add to unbound frames 
+        if mapped_state_distances[state] > cutoff:
+            mapped_cutoff_states.append(state)
+    mapped_cutoff_states=array([int(i) for i in mapped_cutoff_states])
+    return mapped_cutoff_states
+
 def get_ligand_minmax(ligcoors, map):
     # build grid of min/max ligand coords from Gens.vmd_ligcoords.dat
     mapped_ligcoors=dict()
@@ -48,7 +59,75 @@ def get_ligand_minmax(ligcoors, map):
         ranges[n]=range(int(round(mins[n])), int(round(maxes[n]+1+(pad*1.0+1))), 1)
     return mapped_ligcoors, ranges[0], ranges[1], ranges[2], box_volume
 
-def estimate_free_energy(modeldir, space, spacetrack, mapped_states, mapped_com_distances, mapped_ligcoors, correction):
+
+def estimate_free_energy(modeldir, space, spacetrack, mapped_states, mapped_state_distances, mapped_ligcoors, correction):
+    #we want to stop and find the average unbound free energy when it starts leveling out
+    #dGstand=-kTln(Vb/V0)-dW
+    #dW=depth on PMF un bulk
+    frees=[]
+    volumes=[]
+    corrs=[]
+    axis=[]
+    cutoffs=arange(0, 20, 1)
+    if os.path.exists('%s/touch_frees.dat' % (modeldir)):
+        print "touch free energies already computed for %s" % modeldir
+        sys.exit()
+    import pdb
+    pdb.set_trace()
+    for cutoff in cutoffs:
+        unbound_frames=eval_distance(mapped_state_distances, cutoff)
+        bound_frames=array([int(x) for x in mapped_states if x not in unbound_frames])
+        if len(bound_frames)==0:
+            print "no bound states less than reference com distance %s" % cutoff
+            continue
+        print "on cutoff %s" % cutoff
+        new_points={ key: mapped_ligcoors[key] for key in bound_frames}
+        new_pops={ key: space.pops[key] for key in bound_frames}
+        GD=space.new_manual_allcoor_grid(spacetrack, new_points, new_pops, type='pops')
+        boundspace=GD.sum()
+
+        new_pops={ key: 1.0 for key in bound_frames}
+        GD=space.new_manual_allcoor_grid(spacetrack, new_points, new_pops, type='pops')
+        boundvolume=GD.sum()
+        volumes.append(boundspace*boundvolume)
+        print "bound volume ", boundspace*boundvolume
+
+        # unbound frames are above COM cutoff
+        new_points={ key: mapped_ligcoors[key] for key in unbound_frames}
+        new_pops={ key: space.pops[key] for key in unbound_frames}
+        GD=space.new_manual_allcoor_grid(spacetrack, new_points, new_pops, type='pops')
+        unboundspace=GD.sum()
+
+        # for counting states
+        new_pops={ key: 1.0 for key in unbound_frames}
+        GD=space.new_manual_allcoor_grid(spacetrack, new_points, new_pops, type='pops')
+        unboundvolume=GD.sum()
+        #print "unbound volume ", unboundvolume
+
+        #dGstand=-kTln(Vb/V0)-dW
+        #dW=depth of PMF in bulk
+        depth=-0.6*log(unboundspace)
+        correction=-0.6*log((boundvolume*boundspace)/1600.0)
+        print "depth in %s" % depth
+        print "corrected free energy ratio at cutoff %s is %s" % (cutoff, correction-depth)
+        axis.append(cutoff)
+        frees.append(correction-depth)
+    k=len(space.pops)
+    savetxt('%s/touch_frees.dat' % (modeldir), frees)
+    savetxt('%s/touch_boundvolumes.dat' % (modeldir), volumes)
+    savetxt('%s/touch_axis.dat' % (modeldir), axis)
+    #pylab.figure()
+    #pylab.plot(axis, frees)
+    #pylab.xlabel('P-L min. atom distance')
+    #pylab.ylabel('Free Energy Estimate (kcal/mol))')
+    #pylab.figure()
+    #pylab.plot(axis, volumes)
+    #pylab.xlabel('P-L min. atom distance')
+    #pylab.ylabel('Weighted Bound Volume ($\AA^3$)')
+    #pylab.show()
+
+
+def estimate_com_free_energy(modeldir, space, spacetrack, mapped_states, mapped_com_distances, mapped_ligcoors, correction):
     frees=[]
     volumes=[]
     corrs=[]
@@ -67,29 +146,28 @@ def estimate_free_energy(modeldir, space, spacetrack, mapped_states, mapped_com_
         new_points={ key: mapped_ligcoors[key] for key in bound_frames}
         new_pops={ key: space.pops[key] for key in bound_frames}
         GD=space.new_manual_allcoor_grid(spacetrack, new_points, new_pops, type='pops')
-        boundspace=space.pmfvolume(GD)
-        volumes.append(boundspace)
-        print "bound volume ", boundspace
+        boundspace=GD.sum()
 
         new_pops={ key: 1.0 for key in bound_frames}
         GD=space.new_manual_allcoor_grid(spacetrack, new_points, new_pops, type='pops')
-        boundvolume=space.pmfvolume(GD)
+        boundvolume=GD.sum()
+        volumes.append(boundspace*boundvolume)
+        print "bound volume ", boundspace*boundvolume
 
         # unbound frames are above COM cutoff
         unbound_frames=array([int(x) for x in mapped_states if x not in bound_frames])
         new_points={ key: mapped_ligcoors[key] for key in unbound_frames}
         new_pops={ key: space.pops[key] for key in unbound_frames}
         GD=space.new_manual_allcoor_grid(spacetrack, new_points, new_pops, type='pops')
-        unboundspace=space.pmfvolume(GD)
+        unboundspace=GD.sum()
 
         # for counting states
         new_pops={ key: 1.0 for key in unbound_frames}
         GD=space.new_manual_allcoor_grid(spacetrack, new_points, new_pops, type='pops')
-        unboundvolume=space.pmfvolume(GD)
-        #print "unbound volume ", unboundvolume
+        unboundvolume=GD.sum()
 
         # free energy from ratio
-        depth=-0.6*log(boundspace/unboundspace)
+        depth=-0.6*log((boundspace*boundvolume)/(unboundspace*boundvolume))
         frees.append(depth)
         axis.append(cutoff)
         print "corrected free energy ratio at cutoff %s is %s" % (cutoff, depth+correction)
@@ -97,15 +175,6 @@ def estimate_free_energy(modeldir, space, spacetrack, mapped_states, mapped_com_
     savetxt('%s/frees.dat' % (modeldir), [x+correction for x in frees])
     savetxt('%s/boundvolumes.dat' % (modeldir), volumes)
     savetxt('%s/axis.dat' % (modeldir), axis)
-    pylab.figure()
-    pylab.plot(axis, [x+correction for x in frees])
-    pylab.xlabel('P-L COM distance')
-    pylab.ylabel('Free Energy Estimate (kcal/mol))')
-    pylab.figure()
-    pylab.plot(axis, volumes)
-    pylab.xlabel('P-L COM distance')
-    pylab.ylabel('Weighted Bound Volume ($\AA^3$)')
-    pylab.show()
 
 def main(modeldir, genfile, ligandfile, writefree=False):
     dir=os.path.dirname(genfile)
@@ -144,8 +213,15 @@ def main(modeldir, genfile, ligandfile, writefree=False):
     GDfree=PMF3D.convert(GDfree, max(free))
     GDfree=GDfree-min(GDfree.flatten())
     space.write_dx(GDfree, modeldir)
+    file='%s.distances.dat' % genfile.split('.lh5')[0]
+    if not os.path.exists(file):
+        print "need state protein-ligand all atom distances file Gens.distances.dat"
+        sys.exit()
+    print "loading protein-ligand all atom distances"
+    state_distances=loadtxt(file)
+    mapped_state_distances=state_distances[frames]
     if writefree==True:
-        estimate_free_energy(modeldir, space, spacetrack, mapped_states, mapped_com_distances, mapped_ligcoors, correction)
+        estimate_com_free_energy(modeldir, space, spacetrack, mapped_states, mapped_state_distances, mapped_ligcoors, correction)
 
 
 
