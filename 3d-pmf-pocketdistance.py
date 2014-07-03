@@ -72,8 +72,6 @@ def estimate_free_energy(modeldir, space, spacetrack, mapped_states, mapped_stat
     if os.path.exists('%s/touch_frees.dat' % (modeldir)):
         print "touch free energies already computed for %s" % modeldir
         sys.exit()
-    import pdb
-    pdb.set_trace()
     for cutoff in cutoffs:
         unbound_frames=eval_distance(mapped_state_distances, cutoff)
         bound_frames=array([int(x) for x in mapped_states if x not in unbound_frames])
@@ -106,7 +104,7 @@ def estimate_free_energy(modeldir, space, spacetrack, mapped_states, mapped_stat
 
         #dGstand=-kTln(Vb/V0)-dW
         #dW=depth of PMF in bulk
-        depth=-0.6*log(unboundspace)
+        depth=-0.6*log(unboundspace*unboundvolume)
         correction=-0.6*log((boundvolume*boundspace)/1600.0)
         print "depth in %s" % depth
         print "corrected free energy ratio at cutoff %s is %s" % (cutoff, correction-depth)
@@ -221,7 +219,8 @@ def main(modeldir, genfile, ligandfile, writefree=False):
     state_distances=loadtxt(file)
     mapped_state_distances=state_distances[frames]
     if writefree==True:
-        estimate_com_free_energy(modeldir, space, spacetrack, mapped_states, mapped_state_distances, mapped_ligcoors, correction)
+        #estimate_com_free_energy(modeldir, space, spacetrack, mapped_states, mapped_state_distances, mapped_ligcoors, correction)
+        estimate_free_energy(modeldir, space, spacetrack, mapped_states, mapped_state_distances, mapped_ligcoors, correction)
 
 
 
