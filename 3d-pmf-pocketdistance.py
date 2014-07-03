@@ -48,62 +48,66 @@ def get_ligand_minmax(ligcoors, map):
         ranges[n]=range(int(round(mins[n])), int(round(maxes[n]+1+(pad*1.0+1))), 1)
     return mapped_ligcoors, ranges[0], ranges[1], ranges[2], box_volume
 
-def estimate_free_energy(space, spacetrack, mapped_com_distances, mapped_ligcoors, volume='all'):
+def estimate_free_energy(modeldir, space, spacetrack, mapped_states, mapped_com_distances, mapped_ligcoors, correction):
     frees=[]
+    volumes=[]
     corrs=[]
     axis=[]
-    volumes=[]
-    cutoffs=arange(0, 40, 1)
-    if volume=='all':
-        for cutoff in cutoffs:
-            bound_frames=where(mapped_com_distances < cutoff)[0]
-            if len(bound_frames)==0:
-                print "no bound states less than reference com distance %s" % cutoff
-                continue
-            new_points={ key: mapped_ligcoors[key] for key in bound_frames}
-            new_pops={ key: space.pops[key] for key in bound_frames}
-            GD=space.new_manual_allcoor_grid(spacetrack, new_points, new_pops, type='pops')
-            boundspace=space.pmfvolume(GD)
+    #cutoffs for Protein-Ligand COM distances
+    cutoffs=arange(0, 20, 1)
+    if os.path.exists('%s/frees.dat' % (modeldir)):
+        print "free energies already computed for %s" % modeldir
+        sys.exit()
+    for cutoff in cutoffs:
+        bound_frames=where(mapped_com_distances < cutoff)[0]
+        if len(bound_frames)==0:
+            print "no bound states less than reference com distance %s" % cutoff
+            continue
+        print "on cutoff %s" % cutoff
+        new_points={ key: mapped_ligcoors[key] for key in bound_frames}
+        new_pops={ key: space.pops[key] for key in bound_frames}
+        GD=space.new_manual_allcoor_grid(spacetrack, new_points, new_pops, type='pops')
+        boundspace=space.pmfvolume(GD)
+        volumes.append(boundspace)
+        print "bound volume ", boundspace
 
-            new_pops={ key: 1.0 for key in bound_frames}
-            GD=space.new_manual_allcoor_grid(spacetrack, new_points, new_pops, type='pops')
-            boundvolume=space.pmfvolume(GD)
-            volumes.append(boundvolume)
-            print "count bound volume ", boundvolume
+        new_pops={ key: 1.0 for key in bound_frames}
+        GD=space.new_manual_allcoor_grid(spacetrack, new_points, new_pops, type='pops')
+        boundvolume=space.pmfvolume(GD)
 
-            # unbound frames are above COM cutoff
-            unbound_frames=array([int(x) for x in mapped_states if x not in bound_frames])
-            new_points={ key: mapped_ligcoors[key] for key in unbound_frames}
-            new_pops={ key: space.pops[key] for key in unbound_frames}
-            GD=space.new_manual_allcoor_grid(spacetrack, new_points, new_pops, type='pops')
-            unboundspace=space.pmfvolume(GD)
+        # unbound frames are above COM cutoff
+        unbound_frames=array([int(x) for x in mapped_states if x not in bound_frames])
+        new_points={ key: mapped_ligcoors[key] for key in unbound_frames}
+        new_pops={ key: space.pops[key] for key in unbound_frames}
+        GD=space.new_manual_allcoor_grid(spacetrack, new_points, new_pops, type='pops')
+        unboundspace=space.pmfvolume(GD)
 
-            # for counting states
-            new_pops={ key: 1.0 for key in unbound_frames}
-            GD=space.new_manual_allcoor_grid(spacetrack, new_points, new_pops, type='pops')
-            unboundvolume=space.pmfvolume(GD)
-            #print "unbound volume ", unboundvolume
+        # for counting states
+        new_pops={ key: 1.0 for key in unbound_frames}
+        GD=space.new_manual_allcoor_grid(spacetrack, new_points, new_pops, type='pops')
+        unboundvolume=space.pmfvolume(GD)
+        #print "unbound volume ", unboundvolume
 
-            # free energy from ratio
-            depth=-0.6*log(boundspace/unboundspace)
-            frees.append(depth)
-            axis.append(cutoff)
-            print "corrected integrated dG ratio at cutoff %s is %s" % (cutoff, depth+correction)
-        k=len(space.pops)
-        savetxt('%s/frees.dat' % (modeldir), [x+correction for x in frees])
-        savetxt('%s/volumes.dat' % (modeldir), volumes)
-        savetxt('%s/axis.dat' % (modeldir), axis)
-    else:
-        k=len(pops)
-        standard_frees=loadtxt('%s/frees.dat' % (modeldir))
-        bound_volumes=loadtxt('%s/volumes.dat' % (modeldir))
-        axis=loadtxt('%s/axis.dat' % modeldir)
-        cutoff=float(volume)
-        index=where(axis==cutoff)[0]
-        print "standard free energy is %s" % (standard_frees[index])
-        print "(population-weighted) bound volume is %s A^3" % bound_volumes[index]
+        # free energy from ratio
+        depth=-0.6*log(boundspace/unboundspace)
+        frees.append(depth)
+        axis.append(cutoff)
+        print "corrected free energy ratio at cutoff %s is %s" % (cutoff, depth+correction)
+    k=len(space.pops)
+    savetxt('%s/frees.dat' % (modeldir), [x+correction for x in frees])
+    savetxt('%s/boundvolumes.dat' % (modeldir), volumes)
+    savetxt('%s/axis.dat' % (modeldir), axis)
+    pylab.figure()
+    pylab.plot(axis, [x+correction for x in frees])
+    pylab.xlabel('P-L COM distance')
+    pylab.ylabel('Free Energy Estimate (kcal/mol))')
+    pylab.figure()
+    pylab.plot(axis, volumes)
+    pylab.xlabel('P-L COM distance')
+    pylab.ylabel('Weighted Bound Volume ($\AA^3$)')
+    pylab.show()
 
-def main(modeldir, genfile, ligandfile, volume):
+def main(modeldir, genfile, ligandfile, writefree=False):
     dir=os.path.dirname(genfile)
     filename=genfile.split(dir)[1].split('.lh5')[0]
     gens=Trajectory.load_from_lhdf(genfile)
@@ -140,7 +144,9 @@ def main(modeldir, genfile, ligandfile, volume):
     GDfree=PMF3D.convert(GDfree, max(free))
     GDfree=GDfree-min(GDfree.flatten())
     space.write_dx(GDfree, modeldir)
-    #estimate_free_energy(space, spacetrack, mapped_com_distances, mapped_ligcoors, volume='all')
+    if writefree==True:
+        estimate_free_energy(modeldir, space, spacetrack, mapped_states, mapped_com_distances, mapped_ligcoors, correction)
+
 
 
 def parse_commandline():
@@ -151,12 +157,14 @@ def parse_commandline():
                       help='input gens file lh5')
     parser.add_option('-l', '--ligandfile', dest='ligandfile',
                       help='ligand index file')
-    parser.add_option('-v', '--volume', dest='volume',
-                          help='volume cutoff')
+    parser.add_option('-f', action="store_true", dest="writefree", help='perform free energy calc with P-L COM distances')
     (options, args) = parser.parse_args()
     return (options, args)
 
 #run the function main if namespace is main
 if __name__ == "__main__":
     (options, args) = parse_commandline()
-    main(modeldir=options.modeldir, genfile=options.genfile, ligandfile=options.ligandfile, volume=options.volume)
+    if options.writefree==True:
+        main(modeldir=options.modeldir, genfile=options.genfile, ligandfile=options.ligandfile, writefree=True)
+    else:
+        main(modeldir=options.modeldir, genfile=options.genfile, ligandfile=options.ligandfile)
