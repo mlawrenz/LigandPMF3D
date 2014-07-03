@@ -60,71 +60,6 @@ def get_ligand_minmax(ligcoors, map):
     return mapped_ligcoors, ranges[0], ranges[1], ranges[2], box_volume
 
 
-def estimate_free_energy(modeldir, space, spacetrack, mapped_states, mapped_state_distances, mapped_ligcoors, correction):
-    #we want to stop and find the average unbound free energy when it starts leveling out
-    #dGstand=-kTln(Vb/V0)-dW
-    #dW=depth on PMF un bulk
-    frees=[]
-    volumes=[]
-    corrs=[]
-    axis=[]
-    cutoffs=arange(0, 20, 1)
-    if os.path.exists('%s/touch_frees.dat' % (modeldir)):
-        print "touch free energies already computed for %s" % modeldir
-        sys.exit()
-    for cutoff in cutoffs:
-        unbound_frames=eval_distance(mapped_state_distances, cutoff)
-        bound_frames=array([int(x) for x in mapped_states if x not in unbound_frames])
-        if len(bound_frames)==0:
-            print "no bound states less than reference com distance %s" % cutoff
-            continue
-        print "on cutoff %s" % cutoff
-        new_points={ key: mapped_ligcoors[key] for key in bound_frames}
-        new_pops={ key: space.pops[key] for key in bound_frames}
-        GD=space.new_manual_allcoor_grid(spacetrack, new_points, new_pops, type='pops')
-        boundspace=GD.sum()
-
-        new_pops={ key: 1.0 for key in bound_frames}
-        GD=space.new_manual_allcoor_grid(spacetrack, new_points, new_pops, type='pops')
-        boundvolume=GD.sum()
-        volumes.append(boundspace*boundvolume)
-        print "bound volume ", boundspace*boundvolume
-
-        # unbound frames are above COM cutoff
-        new_points={ key: mapped_ligcoors[key] for key in unbound_frames}
-        new_pops={ key: space.pops[key] for key in unbound_frames}
-        GD=space.new_manual_allcoor_grid(spacetrack, new_points, new_pops, type='pops')
-        unboundspace=GD.sum()
-
-        # for counting states
-        new_pops={ key: 1.0 for key in unbound_frames}
-        GD=space.new_manual_allcoor_grid(spacetrack, new_points, new_pops, type='pops')
-        unboundvolume=GD.sum()
-        #print "unbound volume ", unboundvolume
-
-        #dGstand=-kTln(Vb/V0)-dW
-        #dW=depth of PMF in bulk
-        depth=-0.6*log(unboundspace*unboundvolume)
-        correction=-0.6*log((boundvolume*boundspace)/1600.0)
-        print "depth in %s" % depth
-        print "corrected free energy ratio at cutoff %s is %s" % (cutoff, correction-depth)
-        axis.append(cutoff)
-        frees.append(correction-depth)
-    k=len(space.pops)
-    savetxt('%s/touch_frees.dat' % (modeldir), frees)
-    savetxt('%s/touch_boundvolumes.dat' % (modeldir), volumes)
-    savetxt('%s/touch_axis.dat' % (modeldir), axis)
-    #pylab.figure()
-    #pylab.plot(axis, frees)
-    #pylab.xlabel('P-L min. atom distance')
-    #pylab.ylabel('Free Energy Estimate (kcal/mol))')
-    #pylab.figure()
-    #pylab.plot(axis, volumes)
-    #pylab.xlabel('P-L min. atom distance')
-    #pylab.ylabel('Weighted Bound Volume ($\AA^3$)')
-    #pylab.show()
-
-
 def estimate_com_free_energy(modeldir, space, spacetrack, mapped_states, mapped_com_distances, mapped_ligcoors, correction):
     frees=[]
     volumes=[]
@@ -211,16 +146,8 @@ def main(modeldir, genfile, ligandfile, writefree=False):
     GDfree=PMF3D.convert(GDfree, max(free))
     GDfree=GDfree-min(GDfree.flatten())
     space.write_dx(GDfree, modeldir)
-    file='%s.distances.dat' % genfile.split('.lh5')[0]
-    if not os.path.exists(file):
-        print "need state protein-ligand all atom distances file Gens.distances.dat"
-        sys.exit()
-    print "loading protein-ligand all atom distances"
-    state_distances=loadtxt(file)
-    mapped_state_distances=state_distances[frames]
     if writefree==True:
-        #estimate_com_free_energy(modeldir, space, spacetrack, mapped_states, mapped_state_distances, mapped_ligcoors, correction)
-        estimate_free_energy(modeldir, space, spacetrack, mapped_states, mapped_state_distances, mapped_ligcoors, correction)
+        estimate_com_free_energy(modeldir, space, spacetrack, mapped_states, mapped_state_distances, mapped_ligcoors, correction)
 
 
 
