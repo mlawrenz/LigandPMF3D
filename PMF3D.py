@@ -1,4 +1,3 @@
-from msmbuilder import Trajectory
 import multiprocessing
 import optparse
 import pylab

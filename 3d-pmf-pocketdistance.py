@@ -1,4 +1,4 @@
-from msmbuilder import Trajectory
+import mdtraj as md
 import PMF3D
 import optparse
 import pylab
@@ -60,12 +60,13 @@ def get_ligand_minmax(ligcoors, map):
     return mapped_ligcoors, ranges[0], ranges[1], ranges[2], box_volume
 
 
-def estimate_com_free_energy(modeldir, space, spacetrack, mapped_states, mapped_com_distances, mapped_ligcoors, correction):
+def estimate_com_free_energy(modeldir, space, spacetrack, mapped_com_distances, mapped_ligcoors, correction):
     frees=[]
     volumes=[]
     corrs=[]
     axis=[]
     #cutoffs for Protein-Ligand COM distances
+    mapped_states=range(0, len(mapped_com_distances))
     cutoffs=arange(0, 20, 1)
     if os.path.exists('%s/frees.dat' % (modeldir)):
         print "free energies already computed for %s" % modeldir
@@ -109,26 +110,36 @@ def estimate_com_free_energy(modeldir, space, spacetrack, mapped_states, mapped_
     savetxt('%s/boundvolumes.dat' % (modeldir), volumes)
     savetxt('%s/axis.dat' % (modeldir), axis)
 
-def main(modeldir, genfile, ligandfile, writefree=False):
+def get_displacement(coor1, coor2):
+    delta = subtract(coor1, coor2)
+    return (delta ** 2.).sum(-1) ** 0.5
+
+def get_com_distances(proteinfile, ligandfile, genfile, topology):
+    lig_indices=loadtxt(ligandfile, ndmin=1, dtype=int)
+    prot_indices=loadtxt(proteinfile, ndmin=1, dtype=int)
+    prot_gens=md.load(genfile, top=topology, atom_indices=prot_indices)
+    lig_gens=md.load(genfile, top=topology, atom_indices=lig_indices)
+    prot_coms=md.compute_center_of_mass(prot_gens)
+    lig_coms=md.compute_center_of_mass(lig_gens)
+    com_distances=[10*get_displacement(i,j) for (i,j) in zip(prot_coms, lig_coms)]
+    return array(com_distances), lig_gens
+
+
+def main(modeldir, genfile, ligandfile, proteinfile, topology, writefree=False):
     dir=os.path.dirname(genfile)
     filename=genfile.split(dir)[1].split('.lh5')[0]
-    gens=Trajectory.load_from_lhdf(genfile)
+    gens=md.load(genfile, top=topology)
+    com_distances, lig_gens=get_com_distances(proteinfile, ligandfile, genfile, topology)
+
     print "computing PMF from model in %s" % modeldir
     map=loadtxt('%s/Mapping.dat' % modeldir)
     pops=loadtxt('%s/Populations.dat' % modeldir)
     ligandind=loadtxt(ligandfile, dtype=int, ndmin=1)
 
-    mapped_ligcoors, x_range, y_range, z_range, box_volume=get_ligand_minmax(gens['XYZList'][:, ligandind], map)
+    mapped_ligcoors, x_range, y_range, z_range, box_volume=get_ligand_minmax(lig_gens.xyz, map)
     correction=-0.6*log(box_volume/1600.0)
     print "correction %s" % correction
     savetxt('%s/standard_correction.dat' % modeldir, array([correction,]))
-
-    # get prot-lig distances
-    if not os.path.exists('%s.com.dat' % genfile.split('.lh5')[0]):
-        print "get Gen protein ligand COM distances per state!"
-    else:
-        print "loading COM per state info"
-        com_distances=loadtxt('%s.com.dat' % genfile.split('.lh5')[0], ndmin=1)
 
     # Generate Mapped 3-D PMF
     frames=where(map!=-1)[0]
@@ -147,7 +158,7 @@ def main(modeldir, genfile, ligandfile, writefree=False):
     GDfree=GDfree-min(GDfree.flatten())
     space.write_dx(GDfree, modeldir)
     if writefree==True:
-        estimate_com_free_energy(modeldir, space, spacetrack, mapped_states, mapped_state_distances, mapped_ligcoors, correction)
+        estimate_com_free_energy(modeldir, space, spacetrack,mapped_com_distances, mapped_ligcoors, correction)
 
 
 
@@ -159,6 +170,10 @@ def parse_commandline():
                       help='input gens file lh5')
     parser.add_option('-l', '--ligandfile', dest='ligandfile',
                       help='ligand index file')
+    parser.add_option('-p', '--proteinfile', dest='proteinfile',
+                      help='protein (active site) index file')
+    parser.add_option('-t', '--topology', dest='topology',
+                      help='reference topology')
     parser.add_option('-f', action="store_true", dest="writefree", help='perform free energy calc with P-L COM distances')
     (options, args) = parser.parse_args()
     return (options, args)
@@ -167,6 +182,6 @@ def parse_commandline():
 if __name__ == "__main__":
     (options, args) = parse_commandline()
     if options.writefree==True:
-        main(modeldir=options.modeldir, genfile=options.genfile, ligandfile=options.ligandfile, writefree=True)
+        main(modeldir=options.modeldir, genfile=options.genfile, ligandfile=options.ligandfile, proteinfile=options.proteinfile, topology=options.topology, writefree=True)
     else:
-        main(modeldir=options.modeldir, genfile=options.genfile, ligandfile=options.ligandfile)
+        main(modeldir=options.modeldir, genfile=options.genfile, ligandfile=options.ligandfile, proteinfile=options.proteinfile, topology=options.topology)
