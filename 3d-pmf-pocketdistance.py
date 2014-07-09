@@ -127,9 +127,11 @@ def get_com_distances(proteinfile, ligandfile, genfile, topology):
 
 def main(modeldir, genfile, ligandfile, proteinfile, topology, writefree=False):
     dir=os.path.dirname(genfile)
-    filename=genfile.split(dir)[1].split('.lh5')[0]
+    filename=genfile.split('%s/' % dir)[1].split('.')[0]
     gens=md.load(genfile, top=topology)
     com_distances, lig_gens=get_com_distances(proteinfile, ligandfile, genfile, topology)
+    print "writing output for %s to %s.com.dat" % (dir, filename)
+    savetxt('%s/%s.com.dat' % (dir, filename), com_distances)
 
     print "computing PMF from model in %s" % modeldir
     map=loadtxt('%s/Mapping.dat' % modeldir)
