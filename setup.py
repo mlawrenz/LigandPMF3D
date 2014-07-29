@@ -3,11 +3,9 @@ import glob
 from setuptools import setup
 
 setup(name='PMF3D',
+      author='Morgan Lawrenz', 
+      author_email='morganlawrenz@gmail.com',
       version = '1.0',
-      description = 'Protein-ligand binding free energy maps', 
-      packages=['PMF3D',
-                'PMF3D.scripts'],
-      package_dir={'PMF3D':'lib',
-                   'PMF3D.scripts':'scripts'},
-      install_requires=['ipython==0.13'],
-      scripts=filter(lambda elem: '_' not in elem, glob.glob('scripts/*')))
+      description = 'Protein-ligand binding 3-D free energy maps', 
+      py_modules = ['PMF3D'],
+      scripts=glob.glob('RunPMF.py'), )
